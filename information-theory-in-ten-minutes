@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 # 99aeabc9ec7fe80b1b39f5e53dc7e49e      <- self-modifying Perl magic
-# state:  40978d467f63cbf7bf428436d10ab475
+# state:  9c8b86a47b0a404939b5ae6bb58ac270
 # istate: 21abe93dbcf0a484a26a3258f2cb4fa7
 # id:     011fbfd16a3e4ab84586449de9f29ce5
 
@@ -1916,6 +1916,91 @@ meta::retriever('sdocp', <<'__');
 return undef unless $_[0] =~ /^sdocp::(.*)$/;
 exists $data{"sdoc::$1"} ? sdocp("sdoc::$1") : undef;
 __
+meta::section('compression', <<'__');
+- s1 Compression | sec:compression
+  You can't losslessly compress random data. That's implied by how randomness
+  is defined, and it's also why gzipping audio files doesn't usually work well.
+  The only way you can compress things is by detecting non-randomness and
+  factoring that away from the true randomness.
+
+  The probability-space bisection strategy in the last section is one way to do
+  this. That algorithm is called {\em arithmetic coding}, and it and simpler
+  variants like Huffman coding are commonly used to compress
+  nonuniformly-distributed values, often as one of the last stages of a
+  compression program's encoder.
+
+  But at a higher level, compression isn't just about finding nonuniformity;
+  it's about finding cases where observations (often bytes) exhibit
+  non-independence. In most structured data earlier bytes contextualize later
+  ones, which from a compression standpoint means that the distribution of
+  later bytes is parameterized on the values of the early ones. Here's an
+  obvious example:
+
+  - verbatim << end
+    int main(int argc, char **arg
+  - end
+
+  What comes next? I bet you're at least 50\% sure it's {\tt v}, since that's
+  what almost every C program that starts this way would have next. You'd be
+  very surprised if it were {\tt Q}, and you'd be even more surprised if it
+  were something like \verb|}|. Internally, then, your expectations probably
+  have a distribution something like this:
+
+  \noindent
+  \begin{picture}(12, 1.2)
+    \put(0, 0.8){\put(4,0){\cbox{\tt v}}
+                 \put(9.5,0){\cbox{a letter}}
+                 \put(11.5,0){\cbox{other}}}
+    \put(0, 0.5){\linethickness{1mm}\line(1,0){8}}
+    \put(8, 0.5){\linethickness{0.05mm}\line(1,0){3}}
+    \put(11, 0.5){\linethickness{2mm}\line(1,0){1}}
+  \end{picture}
+
+  And this nonuniformity in the probability space means that the next
+  character, on average, would require very few bits to encode; one bit and you
+  already know it's a {\tt v} (instead of the eight bits normally used to
+  encode that byte). Most compression algorithms don't know how C is usually
+  written, since that's considered to be domain-specific and may change over
+  time. Instead, they detect cases where they can predict future bytes based on
+  past ones. This limits the amount of high-level structure they can infer, but
+  most data has enough low-level structure that it's still effective.
+
+  - s2 Detecting low-level structure | sec:low-level-structure
+    One of the simplest ways to detect structure is to look for repeated
+    strings of bytes. Most text files, for instance, will have
+    commonly-repeated words or phrases because English is not particularly
+    information-dense. For example, here's a frequency breakdown of some of the
+    most common words in this guide:\footnote{As of this point anyway; the
+    rest of the guide didn't exist when I totaled these up.}
+
+    - verbatim << end
+      98 the
+      53 of
+      45 a
+      41 to
+      34 it
+      31 that
+      31 is
+      25 this
+      23 you
+      21 coin
+      21 and
+      19 picture
+      19 in
+    - end
+
+    Algorithms like LZ77 (used by gzip and many other compressors) build an
+    internal dictionary for common strings like these. This makes it possible
+    to encode ``the'' with just a few bits, not the 24 required to encode the
+    ASCII. This works because of how written languages tend to work:~we assign
+    labels to ideas, ideas are referenced multiple times, and the labels we use
+    are nonuniformly chosen because they follow rules that make them
+    pronounceable. LZ77 doesn't end up understanding any of the subtlety of
+    written language, but it reduces the overhead of repetition from $O(kn)$ to
+    $O(k + n)$, where $n$ is the length of the thing being repeated and $k$ is
+    the number of repetitions.
+
+__
 meta::section('entropy', <<'__');
 - s1 Entropy | sec:entropy
   {\em Entropy} is not a first-date kind of word. Even the seemingly innocuous
@@ -2081,6 +2166,65 @@ meta::section('entropy', <<'__');
     observation is more about reducing the size of the probability space than
     it is about getting the split lines to line up exactly.
 
+  - s2 Three outcomes | sec:three-outcomes
+    Entropy is a well-defined idea for distributions with more than two
+    outcomes. Suppose we took our coin and made it a full inch thick, so it
+    could land heads, tails, or on the side (and suppose those outcomes were
+    equally probable). Then we'd have this:
+
+    \noindent
+    \begin{picture}(12, 1.2)
+      \put(0, 0.8){\put(2,0){\cbox{Heads}}
+                   \put(6,0){\cbox{Tails}}
+                   \put(10,0){\cbox{Side}}}
+      \put(0, 0.5){\linethickness{1mm}\line(1,0){4}}
+      \put(4, 0.5){\linethickness{0.05mm}\line(1,0){6}}
+      \put(8, 0.5){\linethickness{2mm}\line(1,0){4}}
+    \end{picture}
+
+    It's probably fairly obvious how this works with binary splitting, and how
+    the entropy formula responds to it. I wanted to mention this case, though,
+    because it makes it a little easier to see why biased distributions have
+    lower entropy than uniform ones. Watch what happens as we start decreasing
+    the thickness of the coin:
+
+    \noindent
+    \begin{picture}(12, 3)
+      \put(0, 2.5){\linethickness{1mm}\line(1,0){4}}
+      \put(4, 2.5){\linethickness{0.05mm}\line(1,0){4}}
+      \put(8, 2.5){\linethickness{2mm}\line(1,0){4}}
+      \put(12.2, 2.4){1''}
+
+      \put(0,  2){\linethickness{1mm}\line(1,0){5}}
+      \put(5,  2){\linethickness{0.05mm}\line(1,0){5}}
+      \put(10, 2){\linethickness{2mm}\line(1,0){2}}
+      \put(12.2, 1.9){1/2''}
+
+      \put(0,   1.5){\linethickness{1mm}\line(1,0){5.5}}
+      \put(5.5, 1.5){\linethickness{0.05mm}\line(1,0){5.5}}
+      \put(11,  1.5){\linethickness{2mm}\line(1,0){1}}
+      \put(12.2, 1.4){1/4''}
+
+      \put(0,    1){\linethickness{1mm}\line(1,0){5.75}}
+      \put(5.75, 1){\linethickness{0.05mm}\line(1,0){5.75}}
+      \put(11.5, 1){\linethickness{2mm}\line(1,0){0.5}}
+      \put(12.2, 0.9){1/8''}
+
+      \put(0,    0.5){\linethickness{1mm}\line(1,0){6}}
+      \put(6, 0.5){\linethickness{0.05mm}\line(1,0){6}}
+      \put(12.2, 0.4){0''}
+    \end{picture}
+
+    It's easy to imagine the reasons that encoding one of many possibilities
+    takes more bits than encoding one of a few. When one outcome has lower
+    probability than the others, you could think of it as that outcome being in
+    a state of half-existence -- and the entropy function behaves in a
+    continuous way, interpolating nicely as you drop the likelihood down to
+    zero and reduce the space of possibilities.\footnote{It's assumed that
+    $P(x) \log_2 P(x) = 0$ when $P(x) = 0$, by L'H\^opital's rule; this is
+    another hint that entropy is defined as a limit more than as a fixed
+    quantity.}
+
 __
 meta::section('independence', <<'__');
 - s1 Independence | sec:independence
@@ -2163,6 +2307,7 @@ meta::section('main', <<'__');
   - include section::randomness
   - include section::independence
   - include section::entropy
+  - include section::compression
 - end
 
 __
