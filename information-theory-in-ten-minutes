@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 # 99aeabc9ec7fe80b1b39f5e53dc7e49e      <- self-modifying Perl magic
-# state:  9c8b86a47b0a404939b5ae6bb58ac270
+# state:  b5dbd9410a401c348c5497a7d1a06a67
 # istate: 21abe93dbcf0a484a26a3258f2cb4fa7
 # id:     011fbfd16a3e4ab84586449de9f29ce5
 
@@ -1918,13 +1918,15 @@ exists $data{"sdoc::$1"} ? sdocp("sdoc::$1") : undef;
 __
 meta::section('compression', <<'__');
 - s1 Compression | sec:compression
-  You can't losslessly compress random data. That's implied by how randomness
+  You can't losslessly compress random data.\footnote{You can lossily compress
+  it, but that's beyond the scope of this guide since it tends to be more about
+  the domain than about information theory.} That's implied by how randomness
   is defined, and it's also why gzipping audio files doesn't usually work well.
   The only way you can compress things is by detecting non-randomness and
   factoring that away from the true randomness.
 
-  The probability-space bisection strategy in the last section is one way to do
-  this. That algorithm is called {\em arithmetic coding}, and it and simpler
+  The probability-space bisection strategy in \ref{sec:entropy} is one way to
+  do this. That algorithm is called {\em arithmetic coding}, and it and simpler
   variants like Huffman coding are commonly used to compress
   nonuniformly-distributed values, often as one of the last stages of a
   compression program's encoder.
@@ -1965,7 +1967,7 @@ meta::section('compression', <<'__');
   past ones. This limits the amount of high-level structure they can infer, but
   most data has enough low-level structure that it's still effective.
 
-  - s2 Detecting low-level structure | sec:low-level-structure
+  - s2 Dictionary coding | sec:dictionary-coding
     One of the simplest ways to detect structure is to look for repeated
     strings of bytes. Most text files, for instance, will have
     commonly-repeated words or phrases because English is not particularly
@@ -1985,7 +1987,6 @@ meta::section('compression', <<'__');
       23 you
       21 coin
       21 and
-      19 picture
       19 in
     - end
 
@@ -1999,6 +2000,82 @@ meta::section('compression', <<'__');
     written language, but it reduces the overhead of repetition from $O(kn)$ to
     $O(k + n)$, where $n$ is the length of the thing being repeated and $k$ is
     the number of repetitions.
+
+    Notice also that the word frequencies themselves are unbalanced. This means
+    that there's still an opportunity to compress the word occurrences beyond
+    just eliminating the repetition. In practice, such as in the DEFLATE
+    algorithm, dictionary compression output is often run through Huffman or
+    arithmetic encoding to deal with this nonuniformity.
+
+  - s2 Prediction by partial matching | sec:ppm
+    A more general-purpose structure detector relies on contextual locality
+    between bytes; that is, if you have a string of bytes $a_1 a_2 a_3 a_4$,
+    $a_3$ contextualizes $a_4$ more than $a_1$ does. This corresponds to the
+    idea that low-level structure is easier to observe than high-level
+    structure. For example, English vowels are often followed by consonants
+    (low-level structure), and verbs often end with {\em ing} (high-level
+    structure). A compression algorithm could easily understand the former, but
+    would have a hard time with the latter.
+
+    Given contextual locality, one simple compression strategy is to ask the
+    question, ``given this leading context, what do we expect?'' Prediction by
+    partial matching does this by assuming that in general the same context
+    will produce the same outcomes, which is often the case in real-world data.
+    So it builds contextual distributions based on things it's seen before.
+    Specifically, it maintains a table of distributions that looks something
+    like this (these numbers are from the most-frequent word table above):
+
+    - verbatim << end
+      prior context             next byte with frequency
+      t                         154:h 41:o
+      th                        98:e 31:a 25:i
+      tha                       31:t
+      thi                       25:s
+      h                         98:e 31:a 25:i
+      i                         56:s 40:n 34:t
+      <none>                    260:t 154:h 138:o 98:e ...
+      ...                       ...
+    - end
+
+    Each time the encoder sees a byte, it consults the probability table and
+    emits the probability-space boundaries for the outcome. It then updates the
+    probability table and moves on to the next byte.
+
+    A couple of ideas here deserve elaboration. First, ``consulting the
+    probability table'' has some subtlety to it. What happens if we've never
+    seen the last three bytes of context, for example? Maybe we've just
+    encountered the first instance of ``thud,'' and we have no predictions for
+    a context of {\tt thu}. When this happens, PPM finds the longest matching
+    context that it does have -- hence ``partial matching.''
+
+    The other issue is how it works when you've got only one observation for a
+    given context. For example, suppose we've encoded {\tt CATA} and are about
+    to encode {\tt M}. The table's only entry is for {\tt T}, and if
+    interpreted literally it would indicate that {\tt T} is 100\% likely. This
+    is called the zero-frequency problem, and different implementations handle
+    it differently. The common theme, though, is that all of them assume a
+    nonzero quantity when there isn't an entry for a particular byte, since
+    we're technically learning about biases rather than about
+    impossibilities.\footnote{In probability theory, this is called the {\em
+    rule of succession}, although in this guide I'm going to address it as a
+    consequence of Bayesian inference.}
+
+    Updating the probability table just involves incrementing the current
+    byte's entry within each of its contexts (one-byte, two-byte, etc). This
+    converges to the empirical distributions, which ends up being one of the
+    more effective, albeit time-consuming, ways to encode most kinds of
+    real-world data.
+
+    Earlier I mentioned that PPM emits the probability-boundaries for each
+    outcome. These end up being translated into bytes with arithmetic coding or
+    similar, but I wanted to bring this up because it captures the essence of
+    data compression. If you think of each of the $n$ bits in a document as a
+    binary digit of a real number, then the document is about narrowing down
+    the value of the number to a precision of $2^{-n}$. Now imagine that you're
+    locally stretching the parts of the number space based your distribution of
+    expectations. After you've done this, the new area of $2^{-n}$ will be
+    larger to the extent that the document ends up meeting your expectations.
+    Because it's larger in the scaled space, you need fewer bits to reach it.
 
 __
 meta::section('entropy', <<'__');
@@ -2292,7 +2369,7 @@ meta::section('main', <<'__');
 - document << end
   - maketitle
 
-  % Note: keep this here
+  % Note: keep this here (self-modifying perl uses it to get refs right)
   % \tableofcontents
 
   \setlength{\unitlength}{1cm}
